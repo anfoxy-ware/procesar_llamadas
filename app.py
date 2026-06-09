@@ -33,13 +33,14 @@ def procesar():
     if len(archivos) == 0:
         return jsonify({'error': 'Lista de archivos vacía'}), 400
     
-    # 1. Usamos una lista para acumular DataFrames en lugar de escribir al Excel en cada vuelta
+    # 1. Usamos una lista para acumular DataFrames en lugar de escribir al Excel en cada vuelta este funciona 100% real
     dfs_procesados = []
     
-    for archivo in archivos:
+    for i, archivo in enumerate(archivos):
         if not archivo.filename.endswith('.xlsx'):
             continue
         try:
+            print(f"⏳ Procesando matriz de archivo {i+1} de {len(archivos)}: {archivo.filename} ...")
             archivo_bytes = io.BytesIO(archivo.read())
             df = procesar_archivo_excel(archivo_bytes, archivo.filename)
             
