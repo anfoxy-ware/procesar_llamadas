@@ -33,10 +33,8 @@ def procesar():
     if len(archivos) == 0:
         return jsonify({'error': 'Lista de archivos vacía'}), 400
     
-    # Usaremos un archivo temporal en disco (RAM) para no acumular todo en memoria
-    output_buffer = io.BytesIO()
-    # Escribimos el primer archivo (inicializamos el Excel)
-    primer_archivo = True
+    # 1. Usamos una lista para acumular DataFrames en lugar de escribir al Excel en cada vuelta
+    dfs_procesados = []
     
     for archivo in archivos:
         if not archivo.filename.endswith('.xlsx'):
@@ -45,7 +43,7 @@ def procesar():
             archivo_bytes = io.BytesIO(archivo.read())
             df = procesar_archivo_excel(archivo_bytes, archivo.filename)
             
-            # Limpieza básica necesaria antes de escribir (para evitar errores de tipos)
+            # Limpieza básica
             df['Número de extensión'] = df['Número de extensión'].fillna(0).astype(int)
             df['Hora de inicio'] = pd.to_datetime(df['Hora de inicio'], errors='coerce')
             df['Fecha'] = df['Hora de inicio'].dt.date
@@ -54,22 +52,28 @@ def procesar():
             df['Conectividad'] = df['Duración'] > pd.Timedelta(seconds=6)
             df['Efectividad'] = df['Duración'] > pd.Timedelta(seconds=48)
             
-            # Escribir en el buffer (si es el primer archivo, crea el Excel; si no, append)
-            with pd.ExcelWriter(output_buffer, engine='openpyxl', mode='a' if not primer_archivo else 'w') as writer:
-                df.to_excel(writer, index=False, sheet_name='Llamadas_Procesadas')
-            
-            primer_archivo = False
-            
-            # Liberar memoria del DataFrame y del buffer de lectura
-            del df
-            del archivo_bytes
+            # 2. Guardamos el DataFrame en la lista
+            dfs_procesados.append(df)
             
         except Exception as e:
             # Log del error pero continuamos con los demás archivos
             print(f"Error con {archivo.filename}: {e}")
     
-    if primer_archivo:
+    # Verificamos si logramos extraer datos de algún archivo
+    if not dfs_procesados:
         return jsonify({'error': 'No se pudo procesar ningún archivo válido'}), 400
+    
+    # 3. Concatenamos todo de un solo golpe (Pandas hace esto muy rápido y optimiza la memoria)
+    df_final = pd.concat(dfs_procesados, ignore_index=True)
+    
+    # 4. Escribimos el Excel una sola vez
+    output_buffer = io.BytesIO()
+    with pd.ExcelWriter(output_buffer, engine='openpyxl') as writer:
+        df_final.to_excel(writer, index=False, sheet_name='Llamadas_Procesadas')
+    
+    # Liberamos el DataFrame gigante de la memoria
+    del df_final
+    del dfs_procesados
     
     output_buffer.seek(0)
     return send_file(
